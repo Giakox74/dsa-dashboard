@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>DSA Deportes</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="manifest" href="manifest.json">
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+<style>
+body {
+    font-family: 'Segoe UI';
+    background: #0f172a;
+    color: white;
+    margin: 0;
+    padding: 20px;
+}
+
+/* HEADER */
+.header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.logo {
+    width: 60px;
+}
+
+/* SCREENS */
+.screen { display:none; }
+.active { display:block; }
+
+/* BOTONES */
+.btn {
+    background:#2563eb;
+    padding:12px;
+    border-radius:10px;
+    margin:5px;
+    cursor:pointer;
+    text-align:center;
+}
+
+/* TARJETAS */
+.cards { display:flex; gap:10px; margin:15px 0; }
+.card { flex:1; background:#1e3a8a; padding:15px; border-radius:15px; text-align:center; }
+
+/* GRID */
+.grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap:10px; }
+
+.box { padding:10px; border-radius:12px; font-size:12px; }
+
+.green { background:#22c55e; }
+.orange { background:#f97316; }
+.purple { background:#9333ea; }
+
+.section { margin-top:20px; }
+</style>
+</head>
+
+<body>
+
+<div class="header">
+    <img src="logo.png" class="logo">
+    <h2>DSA Deportes</h2>
+</div>
+
+<!-- HOME -->
+<div id="home" class="screen active">
+    <div class="btn" onclick="irCoaches()">Ver Coaches</div>
+</div>
+
+<!-- COACHES -->
+<div id="coachesScreen" class="screen">
+    <h3>Selecciona Coach</h3>
+    <div id="coaches"></div>
+    <div class="btn" onclick="irHome()">⬅ Volver</div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard" class="screen">
+
+    <div class="cards">
+        <div class="card"><p>$10</p><h3 id="c10">0</h3><p id="m10">$0</p></div>
+        <div class="card"><p>$15</p><h3 id="c15">0</h3><p id="m15">$0</p></div>
+        <div class="card"><p>$30</p><h3 id="c30">0</h3><p id="m30">$0</p></div>
+        <div class="card"><p>Total</p><h2 id="total">$0</h2></div>
+    </div>
+
+    <div class="btn" onclick="setQuincena(true)">1-15</div>
+    <div class="btn" onclick="setQuincena(false)">16-fin</div>
+
+    <div class="grid" id="contenido"></div>
+
+    <div class="section">
+        <h3>📋 Suplencias</h3>
+        <div id="suplencias"></div>
+    </div>
+
+    <div class="btn" onclick="reporteSuplenciasAnual()">📊 Reporte Anual Suplencias</div>
+
+    <div class="btn" onclick="irCoaches()">⬅ Coaches</div>
+</div>
+
+<script>
+
+const firebaseConfig = {
+  apiKey: "AIzaSy...",
+  authDomain: "dsa-deportes.firebaseapp.com",
+  databaseURL: "https://dsa-deportes-default-rtdb.firebaseio.com",
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+let coachSeleccionado = "";
+let quincena1 = true;
+
+const ordenHorarios = ["6:00 AM","7:00 AM","8:00 AM","10:00 AM","FESTIVO"];
+
+// NAV
+function mostrar(id){
+    document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+    document.getElementById(id).classList.add("active");
+}
+
+function irHome(){ mostrar("home"); }
+function irCoaches(){ mostrar("coachesScreen"); cargarCoaches(); }
+function irDashboard(){ mostrar("dashboard"); }
+
+// COACHES
+function cargarCoaches(){
+    db.ref("clases").once("value").then(snapshot=>{
+        const cont=document.getElementById("coaches");
+        cont.innerHTML="";
+
+        snapshot.forEach(c=>{
+            const b=document.createElement("div");
+            b.className="btn";
+            b.innerText=c.key;
+
+            b.onclick=()=>{
+                coachSeleccionado=c.key;
+                cargarCoach(c.key);
+                irDashboard();
+            };
+
+            cont.appendChild(b);
+        });
+    });
+}
+
+// DASHBOARD
+function cargarCoach(coach){
+
+    document.getElementById("contenido").innerHTML="";
+    document.getElementById("suplencias").innerHTML="";
+
+    let c10=0,c15=0,c30=0;
+    let m10=0,m15=0,m30=0;
+
+    let listaSup=[];
+
+    db.ref("clases/"+coach).once("value").then(snapshot=>{
+
+        snapshot.forEach(disc=>{
+            disc.forEach(fechaSnap=>{
+
+                const fecha=fechaSnap.key;
+                const dia=Number(fecha.split("-")[2])||0;
+
+                if(!dia) return;
+                if(quincena1 && dia>15) return;
+                if(!quincena1 && dia<16) return;
+
+                ordenHorarios.forEach(hora=>{
+
+                    const val=fechaSnap.child(hora).val();
+                    if(!val) return;
+
+                    const alumnos=Number(val.alumnos)||0;
+                    const sup=val.suplente||"";
+
+                    let precio=15;
+                    if(hora.includes("7")||hora.includes("8")) precio=10;
+                    if(hora.includes("FESTIVO")) precio=30;
+
+                    const dinero=alumnos*precio;
+
+                    if(precio==10){c10+=alumnos;m10+=dinero;}
+                    if(precio==15){c15+=alumnos;m15+=dinero;}
+                    if(precio==30){c30+=alumnos;m30+=dinero;}
+
+                    if(sup) listaSup.push(`${fecha} ${hora} → ${sup}`);
+
+                    const box=document.createElement("div");
+                    box.className=precio==10?"box green":precio==30?"box purple":"box orange";
+
+                    box.innerHTML=`
+                        <b>${fecha}</b><br>
+                        ${hora}<br>
+                        👥 ${alumnos}<br>
+                        💰 $${dinero}
+                    `;
+
+                    document.getElementById("contenido").appendChild(box);
+                });
+            });
+        });
+
+        document.getElementById("c10").innerText=c10;
+        document.getElementById("c15").innerText=c15;
+        document.getElementById("c30").innerText=c30;
+
+        document.getElementById("m10").innerText="$"+m10;
+        document.getElementById("m15").innerText="$"+m15;
+        document.getElementById("m30").innerText="$"+m30;
+
+        const total=m10+m15+m30;
+        document.getElementById("total").innerText="$"+total;
+
+        listaSup.forEach(s=>{
+            const div=document.createElement("div");
+            div.innerText=s;
+            document.getElementById("suplencias").appendChild(div);
+        });
+
+    });
+}
+
+// REPORTE SUPLENCIAS ANUAL
+function reporteSuplenciasAnual(){
+
+    if(!coachSeleccionado){
+        alert("Selecciona un coach");
+        return;
+    }
+
+    let totalGasto=0;
+    let texto="REPORTE SUPLENCIAS\nCoach: "+coachSeleccionado+"\n\n";
+
+    db.ref("clases/"+coachSeleccionado).once("value").then(snapshot=>{
+
+        snapshot.forEach(disc=>{
+            disc.forEach(fechaSnap=>{
+
+                const fecha=fechaSnap.key;
+
+                ordenHorarios.forEach(hora=>{
+
+                    const val=fechaSnap.child(hora).val();
+                    if(!val) return;
+
+                    const sup=val.suplente||"";
+                    if(!sup) return;
+
+                    let costo=150;
+                    if(hora.includes("7")||hora.includes("8")) costo=100;
+                    if(hora.includes("FESTIVO")) costo=300;
+
+                    totalGasto+=costo;
+
+                    texto+=`${fecha} ${hora} ${sup} $${costo}\n`;
+                });
+            });
+        });
+
+        texto+=`\nTOTAL GASTO: $${totalGasto}`;
+
+        const blob=new Blob([texto],{type:"text/plain"});
+        const a=document.createElement("a");
+        a.href=URL.createObjectURL(blob);
+        a.download=`suplencias_${coachSeleccionado}.txt`;
+        a.click();
+
+    });
+}
+
+function setQuincena(v){
+    quincena1=v;
+    if(coachSeleccionado) cargarCoach(coachSeleccionado);
+}
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js");
+}
+</script>
+
+</body>
+</html>
